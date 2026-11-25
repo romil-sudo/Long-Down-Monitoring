@@ -1,0 +1,1890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fleet Monitoring & Interactive Asset Gantt Timeline</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-canvas: #dfe5ec;
+      --panel-dark: #11151c;
+      --panel-card: #1c222d;
+      --pill-bg: #202632;
+      --pill-border: #2e3646;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-canvas);
+      background-image: radial-gradient(circle at 50% 0%, #e7ecf2 0%, #d8e0e8 100%);
+      color: #0f172a;
+      min-height: 100vh;
+    }
+
+    .font-mono-code {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* 3D Glossy LED Indicator Orbs */
+    .led-orb {
+      width: 22px;
+      height: 22px;
+      border-radius: 9999px;
+      position: relative;
+      flex-shrink: 0;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .led-orb::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 4px;
+      width: 8px;
+      height: 6px;
+      border-radius: 9999px;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.1) 80%);
+      transform: rotate(-25deg);
+    }
+
+    .led-available {
+      background: radial-gradient(circle at 35% 35%, #6ee7b7 0%, #10b981 52%, #047857 100%);
+      box-shadow: 0 0 11px rgba(16, 185, 129, 0.78), inset 0 -2px 4px rgba(0, 0, 0, 0.45);
+    }
+
+    .led-reported {
+      background: radial-gradient(circle at 35% 35%, #fde047 0%, #eab308 55%, #a16207 100%);
+      box-shadow: 0 0 11px rgba(234, 179, 8, 0.78), inset 0 -2px 4px rgba(0, 0, 0, 0.45);
+    }
+
+    .led-down {
+      background: radial-gradient(circle at 35% 35%, #fca5a5 0%, #ef4444 52%, #991b1b 100%);
+      box-shadow: 0 0 11px rgba(239, 68, 68, 0.82), inset 0 -2px 4px rgba(0, 0, 0, 0.45);
+    }
+
+    .led-restored {
+      background: radial-gradient(circle at 35% 35%, #93c5fd 0%, #3b82f6 52%, #1d4ed8 100%);
+      box-shadow: 0 0 11px rgba(59, 130, 246, 0.8), inset 0 -2px 4px rgba(0, 0, 0, 0.45);
+    }
+
+    /* Hardware Bezel Pill Styling */
+    .kpi-pill {
+      background: linear-gradient(180deg, #2a313d 0%, #1a1f28 100%);
+      border: 1px solid #353e4e;
+      box-shadow: 0 6px 14px rgba(15, 23, 42, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    .asset-pill {
+      background: linear-gradient(180deg, #242a37 0%, #191e28 100%);
+      border: 1px solid #2e3646;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      transition: all 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .asset-pill:hover {
+      transform: translateY(-2px);
+      background: linear-gradient(180deg, #2b3343 0%, #1f2532 100%);
+      border-color: #4b5872;
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    }
+
+    .asset-pill.selected {
+      background: linear-gradient(180deg, #2d3748 0%, #1e2634 100%);
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.45), 0 10px 22px rgba(0, 0, 0, 0.65);
+      transform: translateY(-2px);
+    }
+
+    /* Smooth reveal for Gantt Section */
+    @keyframes slideDownFade {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .animate-reveal {
+      animation: slideDownFade 0.28s ease-out forwards;
+    }
+
+    /* Subtle striped pattern for Gantt downtime/maintenance bars */
+    .gantt-stripe {
+      background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.12) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.12) 50%,
+        rgba(255, 255, 255, 0.12) 75%,
+        transparent 75%,
+        transparent
+      );
+      background-size: 14px 14px;
+    }
+
+    /* Gantt Bar Drag & Resize Handles */
+    .gantt-bar {
+      touch-action: none;
+      user-select: none;
+    }
+    .gantt-bar.is-dragging {
+      opacity: 0.92;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.65), 0 0 0 2px #f8fafc;
+      z-index: 30 !important;
+      cursor: grabbing !important;
+    }
+    .resize-handle {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 9px;
+      cursor: ew-resize;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .gantt-bar:hover .resize-handle,
+    .gantt-bar.is-dragging .resize-handle {
+      opacity: 1;
+    }
+    .resize-handle::after {
+      content: '';
+      width: 2px;
+      height: 12px;
+      border-radius: 999px;
+      background-color: rgba(255, 255, 255, 0.85);
+    }
+    .resize-handle-left {
+      left: 0;
+      border-top-left-radius: 0.5rem;
+      border-bottom-left-radius: 0.5rem;
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.35), transparent);
+    }
+    .resize-handle-right {
+      right: 0;
+      border-top-right-radius: 0.5rem;
+      border-bottom-right-radius: 0.5rem;
+      background: linear-gradient(270deg, rgba(0, 0, 0, 0.35), transparent);
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-amber-400 selection:text-slate-900 pb-14">
+
+  <!-- Main Container -->
+  <div class="max-w-[1380px] mx-auto px-3 sm:px-6 pt-6 sm:pt-8">
+    
+    <!-- Page Title -->
+    <header class="text-center mb-5">
+      <h1 class="text-2xl sm:text-3xl font-black tracking-tight text-[#111827] uppercase">
+        FLEET MONITORING
+      </h1>
+    </header>
+
+    <!-- KPI Filter Pills & Search Bar Row -->
+    <section aria-label="Fleet Status Summary and Search" class="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3.5 mb-6">
+      
+      <!-- Available Pill -->
+      <button type="button" data-filter="Available" class="kpi-filter-btn kpi-pill flex items-center gap-3 px-4 py-2 rounded-full text-white transition hover:brightness-110 cursor-pointer">
+        <span class="led-orb led-available"></span>
+        <span class="font-bold text-sm tracking-wide">Available</span>
+        <span id="count-available" class="px-2 py-0.5 rounded-md text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">33</span>
+      </button>
+
+      <!-- Reported Pill -->
+      <button type="button" data-filter="Reported" class="kpi-filter-btn kpi-pill flex items-center gap-3 px-4 py-2 rounded-full text-white transition hover:brightness-110 cursor-pointer">
+        <span class="led-orb led-reported"></span>
+        <span class="font-bold text-sm tracking-wide">Reported</span>
+        <span id="count-reported" class="px-2 py-0.5 rounded-md text-xs font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30">12</span>
+      </button>
+
+      <!-- Down Pill -->
+      <button type="button" data-filter="Down" class="kpi-filter-btn kpi-pill flex items-center gap-3 px-4 py-2 rounded-full text-white transition hover:brightness-110 cursor-pointer">
+        <span class="led-orb led-down"></span>
+        <span class="font-bold text-sm tracking-wide">Down</span>
+        <span id="count-down" class="px-2 py-0.5 rounded-md text-xs font-extrabold bg-rose-500/20 text-rose-300 border border-rose-500/30">14</span>
+      </button>
+
+      <!-- Restored Pill -->
+      <button type="button" data-filter="Restored" class="kpi-filter-btn kpi-pill flex items-center gap-3 px-4 py-2 rounded-full text-white transition hover:brightness-110 cursor-pointer">
+        <span class="led-orb led-restored"></span>
+        <span class="font-bold text-sm tracking-wide">Restored</span>
+        <span id="count-restored" class="px-2 py-0.5 rounded-md text-xs font-extrabold bg-blue-500/20 text-blue-300 border border-blue-500/30">0</span>
+      </button>
+
+      <!-- Search Input Pill -->
+      <div class="relative w-full sm:w-64 md:w-72">
+        <span class="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-slate-400">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="7"></circle>
+            <path stroke-linecap="round" d="M20 20l-3.5-3.5"></path>
+          </svg>
+        </span>
+        <input
+          id="asset-search-input"
+          type="text"
+          placeholder="Search asset code, type, or category"
+          class="w-full bg-[#1a202c] text-slate-200 placeholder-slate-400 text-xs sm:text-sm rounded-full pl-9 pr-8 py-2.5 border border-[#303a4b] shadow-inner focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition"
+        />
+        <button
+          id="clear-search-btn"
+          type="button"
+          title="Clear search"
+          class="hidden absolute inset-y-0 right-2.5 items-center text-slate-400 hover:text-white text-xs font-bold px-1"
+        >
+          ✕
+        </button>
+      </div>
+    </section>
+
+    <!-- Main Dark LED Wall Panel -->
+    <main class="bg-[#11151c] rounded-2xl border border-[#242b38] shadow-[0_18px_40px_rgba(10,15,26,0.38)] p-4 sm:p-6">
+      
+      <!-- LED Wall Header Bar -->
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 mb-4 border-b border-[#1f2633]">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]"></span>
+          <h2 class="text-white font-bold text-sm sm:text-[15px] tracking-tight">Interactive Asset LED Wall</h2>
+          <span id="total-units-badge" class="px-2.5 py-1 rounded-md bg-[#1d2432] border border-[#2e384b] text-amber-400 text-xs font-bold">
+            59 Units Monitored
+          </span>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between md:justify-end gap-3">
+          <span class="text-slate-400 text-xs">
+            Click any unit pill to edit multi-track workstreams & timeline
+          </span>
+          <button id="reset-demo-btn" type="button" title="Restore initial 59 units and default workstreams" class="inline-flex items-center gap-1 bg-[#1b2230] hover:bg-[#252e40] text-slate-300 hover:text-white border border-[#2f394d] font-semibold text-xs px-3 py-2 rounded-lg transition cursor-pointer">
+            <span>↺ Reset Demo Data</span>
+          </button>
+          <button id="open-add-modal-btn" type="button" class="inline-flex items-center gap-1.5 bg-[#f59e0b] hover:bg-[#fbbf24] active:scale-[0.99] text-slate-950 font-extrabold text-xs px-3.5 py-2 rounded-lg shadow-[0_4px_12px_rgba(245,158,11,0.35)] transition cursor-pointer">
+            <span class="text-sm leading-none font-black">+</span>
+            <span>Add Asset Number</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Responsive 10-Column Asset LED Grid -->
+      <div id="led-wall-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-10 gap-2.5 sm:gap-3">
+        <!-- Asset Pills injected dynamically via JS -->
+      </div>
+
+      <!-- Empty Filter State -->
+      <div id="empty-wall-state" class="hidden py-10 text-center">
+        <p class="text-slate-400 text-sm mb-3">No fleet assets match your current filter or search.</p>
+        <button id="reset-filters-btn" type="button" class="px-4 py-2 rounded-lg bg-[#222938] hover:bg-[#2c3547] text-amber-400 text-xs font-bold border border-[#343f54] transition">
+          Reset Filters
+        </button>
+      </div>
+    </main>
+
+    <!-- Dynamic Asset Gantt Chart Panel (Appears below when an asset is clicked) -->
+    <section
+      id="gantt-section"
+      aria-label="Selected Asset Gantt Chart Timeline"
+      class="hidden mt-6 bg-[#11151c] rounded-2xl border border-[#283142] shadow-[0_20px_45px_rgba(10,15,26,0.45)] overflow-hidden animate-reveal"
+    >
+      <!-- Gantt Top Control Header -->
+      <div class="bg-[#181e29] px-4 sm:px-6 py-4 border-b border-[#262f40] flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        
+        <!-- Left: Selected Asset Identity & Live Status -->
+        <div class="flex items-start sm:items-center gap-3.5">
+          <div id="gantt-header-orb" class="led-orb led-down mt-1 sm:mt-0 scale-110"></div>
+          <div>
+            <div class="flex flex-wrap items-center gap-2.5">
+              <h3 id="gantt-asset-code" class="font-mono-code text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                BH-86
+              </h3>
+              <span id="gantt-status-badge" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                Down
+              </span>
+              <span id="gantt-asset-category" class="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-[#222a3a] text-slate-300 border border-[#323d54]">
+                Backhoe Loader
+              </span>
+              <button id="edit-category-btn" type="button" title="Edit Equipment Type" class="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2 ml-1 cursor-pointer">
+                Edit Type
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Quick Status Switcher, Add Activity & Close -->
+        <div class="flex flex-wrap items-center gap-2 sm:gap-2.5">
+          <div class="flex items-center bg-[#11151c] p-1 rounded-xl border border-[#273042]" title="Update Live Asset Status">
+            <button type="button" data-set-status="Available" class="status-switch-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white transition cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              <span>Available</span>
+            </button>
+            <button type="button" data-set-status="Reported" class="status-switch-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white transition cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+              <span>Reported</span>
+            </button>
+            <button type="button" data-set-status="Down" class="status-switch-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white transition cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+              <span>Down</span>
+            </button>
+            <button type="button" data-set-status="Restored" class="status-switch-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white transition cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
+              <span>Restored</span>
+            </button>
+          </div>
+
+          <button id="open-log-modal-btn" type="button" class="inline-flex items-center gap-1.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-xs px-3.5 py-2.5 rounded-xl transition cursor-pointer">
+            <span>+ Log Timeline Block</span>
+          </button>
+
+          <button id="close-gantt-btn" type="button" title="Close Gantt Panel" class="p-2 rounded-xl bg-[#222938] hover:bg-[#2f384c] text-slate-300 hover:text-white border border-[#323c52] transition cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Gantt Toolbar: Timeframe Selector, Add Workstream & Legend -->
+      <div class="px-4 sm:px-6 py-3 bg-[#141923] border-b border-[#222a38] flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <span class="text-xs font-bold text-slate-400">Timeline Scale:</span>
+          <div id="timeframe-group" class="inline-flex bg-[#0f131a] p-1 rounded-lg border border-[#252e3f]">
+            <button type="button" data-range="24h" class="range-btn px-3 py-1 rounded-md text-xs font-bold text-slate-400 hover:text-white transition cursor-pointer">
+              24 Hours
+            </button>
+            <button type="button" data-range="7d" class="range-btn px-3 py-1 rounded-md text-xs font-bold bg-[#252f42] text-amber-400 shadow transition cursor-pointer">
+              7 Days
+            </button>
+            <button type="button" data-range="30d" class="range-btn px-3 py-1 rounded-md text-xs font-bold text-slate-400 hover:text-white transition cursor-pointer">
+              30 Days
+            </button>
+          </div>
+
+          <button id="open-add-track-btn" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 text-xs font-bold transition cursor-pointer">
+            <span class="font-black">+</span>
+            <span>Add Workstream</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Interactive Gantt Chart Container -->
+      <div class="p-4 sm:p-6 overflow-x-auto">
+        <div class="min-w-[880px] bg-[#0f131b] rounded-xl border border-[#232b3a] overflow-hidden">
+          
+          <!-- Gantt Time Axis Header -->
+          <div class="grid grid-cols-[260px_1fr] bg-[#171d29] border-b border-[#252e3f]">
+            <div class="px-4 py-3 text-xs font-extrabold uppercase tracking-wider text-slate-400 border-r border-[#252e3f] flex items-center justify-between">
+              <span>Workstream / Track</span>
+              <span class="text-[10px] text-amber-400/90 font-mono-code">EDITABLE</span>
+            </div>
+            <div id="gantt-axis-header" class="grid relative">
+              <!-- Time column headers rendered dynamically -->
+            </div>
+          </div>
+
+          <!-- Gantt Rows Body -->
+          <div id="gantt-rows-container" class="divide-y divide-[#1d2432] relative">
+            <!-- Workstream rows & bars rendered dynamically -->
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Bottom Selected Task Inspector / Undo Strip -->
+      <div class="px-4 sm:px-6 py-3 bg-[#151a24] border-t border-[#222a38] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+        <div id="gantt-selected-task-info" class="text-slate-300 flex flex-wrap items-center gap-2">
+          <span class="inline-block w-2 h-2 rounded-full bg-sky-400"></span>
+          <span>Click any empty timeline slot to add a block, drag/resize bars to reschedule, or click a bar/track to edit.</span>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="undo-track-delete-btn" type="button" class="hidden px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-[11px] cursor-pointer">
+            ↺ Undo Delete Track
+          </button>
+          <span class="text-slate-400 font-mono-code text-[11px]">
+            LOCAL STORAGE SYNCED
+          </span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Floating Tooltip for Gantt Bar Hover -->
+  <div id="gantt-tooltip" class="fixed z-50 pointer-events-none hidden bg-[#1c2331]/95 backdrop-blur-md text-white border border-[#3a465e] rounded-xl shadow-2xl p-3 max-w-xs text-xs">
+    <div id="tt-title" class="font-extrabold text-sm text-white mb-1"></div>
+    <div id="tt-time" class="font-mono-code text-[11px] text-amber-300 mb-1.5"></div>
+    <div id="tt-desc" class="text-slate-300 leading-relaxed mb-1.5"></div>
+    <div id="tt-meta" class="text-[11px] text-slate-400 border-t border-slate-700/80 pt-1.5 flex items-center justify-between"></div>
+  </div>
+
+  <!-- Modal 1: Add Asset Number -->
+  <div id="add-asset-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
+    <div class="bg-[#161c26] border border-[#2d3748] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-reveal">
+      <div class="px-5 py-4 bg-[#1c2330] border-b border-[#2b3445] flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+          <h3 class="text-white font-bold text-base">Add Fleet Asset Number</h3>
+        </div>
+        <button type="button" id="close-add-modal" class="text-slate-400 hover:text-white text-lg font-bold leading-none">✕</button>
+      </div>
+      <form id="add-asset-form" class="p-5 space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Asset Code *</label>
+          <input id="new-asset-code" type="text" required placeholder="e.g., BH-160, SV-450, DT-120" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3.5 py-2.5 text-white font-mono-code text-sm uppercase focus:outline-none focus:border-amber-400" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Initial Status</label>
+            <select id="new-asset-status" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-amber-400">
+              <option value="Available">Available</option>
+              <option value="Reported">Reported</option>
+              <option value="Down">Down</option>
+              <option value="Restored">Restored</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Equipment Type</label>
+            <input id="new-asset-category" type="text" placeholder="e.g., Service Vehicle" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-amber-400" />
+          </div>
+        </div>
+        <p id="add-asset-error" class="hidden text-xs text-rose-400 font-semibold"></p>
+        <div class="flex items-center justify-end gap-2.5 pt-2">
+          <button type="button" id="cancel-add-modal" class="px-4 py-2 rounded-lg bg-[#222938] hover:bg-[#2c3547] text-slate-300 text-xs font-bold">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold">Add to LED Wall</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 2: Create or Edit Gantt Activity / Downtime Block -->
+  <div id="log-gantt-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
+    <div class="bg-[#161c26] border border-[#2d3748] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-reveal">
+      <div class="px-5 py-4 bg-[#1c2330] border-b border-[#2b3445] flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
+          <h3 class="text-white font-bold text-base"><span id="log-modal-heading">Log Gantt Activity</span> — <span id="log-modal-unit" class="font-mono-code text-amber-400">BH-86</span></h3>
+        </div>
+        <button type="button" id="close-log-modal" class="text-slate-400 hover:text-white text-lg font-bold leading-none">✕</button>
+      </div>
+      <form id="log-gantt-form" class="p-5 space-y-3.5">
+        <input type="hidden" id="log-editing-task-id" value="" />
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Workstream Track</label>
+          <select id="log-track" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400">
+            <!-- Populated dynamically from selected asset's workstreams -->
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Task / Event Label *</label>
+          <input id="log-title" type="text" required placeholder="e.g., Hydraulic Cylinder Overhaul" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Status / Color</label>
+            <select id="log-status" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400">
+              <option value="Available">Available (Green)</option>
+              <option value="Reported">Reported (Amber)</option>
+              <option value="Down">Down (Red)</option>
+              <option value="Restored">Restored (Blue)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Completion %</label>
+            <input id="log-progress" type="number" min="0" max="100" value="65" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Start Position (%)</label>
+            <input id="log-start" type="number" min="0" max="94" value="45" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Duration Span (%)</label>
+            <input id="log-duration" type="number" min="5" max="95" value="28" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Assigned Technician / Operator</label>
+          <input id="log-person" type="text" placeholder="e.g., Engr. L. Cruz" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400" />
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Notes / Remarks</label>
+          <input id="log-notes" type="text" placeholder="Parts replaced, inspection findings, or shift remarks" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-sky-400" />
+        </div>
+        <div class="flex items-center justify-between pt-2 gap-2">
+          <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input id="log-sync-status" type="checkbox" class="rounded bg-slate-800 border-slate-600 text-sky-500 focus:ring-0" />
+            <span>Sync unit LED status</span>
+          </label>
+          <div class="flex items-center gap-2">
+            <button type="button" id="delete-task-btn" class="hidden px-3 py-2 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold cursor-pointer">Delete</button>
+            <button type="button" id="cancel-log-modal" class="px-3.5 py-2 rounded-lg bg-[#222938] hover:bg-[#2c3547] text-slate-300 text-xs font-bold cursor-pointer">Cancel</button>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-extrabold cursor-pointer">Save Bar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 3: Edit Category Modal -->
+  <div id="edit-category-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
+    <div class="bg-[#161c26] border border-[#2d3748] rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-reveal">
+      <div class="px-5 py-3.5 bg-[#1c2330] border-b border-[#2b3445] flex items-center justify-between">
+        <h3 class="text-white font-bold text-sm">Update Equipment Type</h3>
+        <button type="button" id="close-cat-modal" class="text-slate-400 hover:text-white font-bold">✕</button>
+      </div>
+      <form id="edit-category-form" class="p-5 space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Equipment Classification</label>
+          <input id="edit-cat-input" type="text" required class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3.5 py-2 text-white text-sm focus:outline-none focus:border-amber-400" />
+        </div>
+        <div class="flex justify-end gap-2">
+          <button type="button" id="cancel-cat-modal" class="px-3.5 py-1.5 rounded-lg bg-[#222938] text-slate-300 text-xs font-bold">Cancel</button>
+          <button type="submit" class="px-4 py-1.5 rounded-lg bg-amber-500 text-slate-950 text-xs font-extrabold">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal 4: Add or Edit Workstream Track Modal -->
+  <div id="track-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/75 backdrop-blur-sm p-4">
+    <div class="bg-[#161c26] border border-[#2d3748] rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-reveal">
+      <div class="px-5 py-4 bg-[#1c2330] border-b border-[#2b3445] flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+          <h3 id="track-modal-heading" class="text-white font-bold text-base">Add Custom Workstream</h3>
+        </div>
+        <button type="button" id="close-track-modal" class="text-slate-400 hover:text-white text-lg font-bold leading-none">✕</button>
+      </div>
+      <form id="track-form" class="p-5 space-y-4">
+        <input type="hidden" id="editing-track-id" value="" />
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Workstream Title *</label>
+          <input id="track-name-input" type="text" required placeholder="e.g., Fueling & Lubrication, Parts Procurement" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3.5 py-2 text-white text-sm focus:outline-none focus:border-amber-400" />
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Subtitle / Scope Description</label>
+          <input id="track-sub-input" type="text" placeholder="e.g., Scheduled Lube & Fluid Checks" class="w-full bg-[#0f131b] border border-[#2e384b] rounded-lg px-3.5 py-2 text-white text-sm focus:outline-none focus:border-amber-400" />
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">Track Accent Color</label>
+          <div id="track-color-picker" class="grid grid-cols-5 gap-2">
+            <button type="button" data-track-color="emerald" class="track-color-btn flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#0f131b] border border-emerald-500 text-emerald-300 text-xs font-bold cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Green
+            </button>
+            <button type="button" data-track-color="amber" class="track-color-btn flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#0f131b] border border-[#2e384b] text-slate-300 text-xs font-bold cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Amber
+            </button>
+            <button type="button" data-track-color="rose" class="track-color-btn flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#0f131b] border border-[#2e384b] text-slate-300 text-xs font-bold cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-rose-500"></span> Red
+            </button>
+            <button type="button" data-track-color="sky" class="track-color-btn flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#0f131b] border border-[#2e384b] text-slate-300 text-xs font-bold cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Blue
+            </button>
+            <button type="button" data-track-color="purple" class="track-color-btn flex items-center justify-center gap-1.5 py-2 rounded-lg bg-[#0f131b] border border-[#2e384b] text-slate-300 text-xs font-bold cursor-pointer">
+              <span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span> Violet
+            </button>
+          </div>
+          <input type="hidden" id="track-color-input" value="emerald" />
+        </div>
+        <div id="apply-all-tracks-wrap" class="pt-1">
+          <label class="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input id="track-apply-all" type="checkbox" class="rounded bg-slate-800 border-slate-600 text-amber-500 focus:ring-0" />
+            <span>Add this workstream track to all monitored fleet units</span>
+          </label>
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-2">
+          <button type="button" id="cancel-track-modal" class="px-3.5 py-2 rounded-lg bg-[#222938] hover:bg-[#2c3547] text-slate-300 text-xs font-bold cursor-pointer">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-extrabold cursor-pointer">Save Workstream</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'fleet_monitoring_gantt_v2';
+
+    /**
+     * Exact 59 Fleet Units ordered row-by-row across the 10 columns
+     * matching the reference image (33 Available, 12 Reported, 14 Down, 0 Restored)
+     */
+    const INITIAL_FLEET_DATA = [
+      // Row 1 (Cols 1-10)
+      { code: 'BH-86', status: 'Down' },
+      { code: 'RG-52', status: 'Down' },
+      { code: 'BT-32', status: 'Available' },
+      { code: 'BT-48', status: 'Available' },
+      { code: 'CT-59', status: 'Down' },
+      { code: 'PM-21', status: 'Available' },
+      { code: 'DOLLY-01', status: 'Available' },
+      { code: 'SV-127', status: 'Reported' },
+      { code: 'SV-210', status: 'Reported' },
+      { code: 'SV-191', status: 'Available' },
+
+      // Row 2 (Cols 1-10)
+      { code: 'BH-133', status: 'Down' },
+      { code: 'RR-43', status: 'Down' },
+      { code: 'BT-36', status: 'Down' },
+      { code: 'BT-50', status: 'Available' },
+      { code: 'CT-61', status: 'Available' },
+      { code: 'PM-22', status: 'Down' },
+      { code: 'DOLLY-02', status: 'Available' },
+      { code: 'SV-54', status: 'Reported' },
+      { code: 'SV-133', status: 'Available' },
+      { code: 'SV-222', status: 'Available' },
+
+      // Row 3 (Cols 1-10)
+      { code: 'BH-56', status: 'Down' },
+      { code: 'BT-06', status: 'Available' },
+      { code: 'BT-38', status: 'Available' },
+      { code: 'BT-63', status: 'Available' },
+      { code: 'CT-67', status: 'Available' },
+      { code: 'PM-24', status: 'Available' },
+      { code: 'SV-339', status: 'Available' },
+      { code: 'SV-158', status: 'Reported' },
+      { code: 'SV-61', status: 'Available' },
+      { code: 'SV-311', status: 'Available' },
+
+      // Row 4 (Cols 1-10)
+      { code: 'BH-157', status: 'Down' },
+      { code: 'BT-19', status: 'Down' },
+      { code: 'BT-39', status: 'Available' },
+      { code: 'CT-12', status: 'Available' },
+      { code: 'CT-76', status: 'Available' },
+      { code: 'DT-117', status: 'Available' },
+      { code: 'SV-179', status: 'Reported' },
+      { code: 'SV-164', status: 'Reported' },
+      { code: 'SV-212', status: 'Available' },
+      { code: 'SV-357', status: 'Available' },
+
+      // Row 5 (Cols 1-10)
+      { code: 'BD-20', status: 'Down' },
+      { code: 'BT-24', status: 'Available' },
+      { code: 'BT-40', status: 'Available' },
+      { code: 'CT-19', status: 'Available' },
+      { code: 'CT-78', status: 'Available' },
+      { code: 'LBT-01', status: 'Down' },
+      { code: 'SV-180', status: 'Reported' },
+      { code: 'SV-164_', status: 'Reported' },
+      { code: 'SV-97', status: 'Reported' },
+      { code: 'SV-437', status: 'Down' },
+
+      // Row 6 (Cols 1-9)
+      { code: 'RG-51', status: 'Reported' },
+      { code: 'BT-29', status: 'Available' },
+      { code: 'BT-47', status: 'Available' },
+      { code: 'CT-22', status: 'Available' },
+      { code: 'PM-19', status: 'Down' },
+      { code: 'LBT-17', status: 'Available' },
+      { code: 'SV-277', status: 'Reported' },
+      { code: 'SV-192', status: 'Reported' },
+      { code: 'SV-138', status: 'Available' }
+    ];
+
+    // Map equipment prefixes to clear categories
+    function inferEquipmentCategory(code) {
+      if (code.startsWith('BH-')) return 'Backhoe Excavator';
+      if (code.startsWith('RG-')) return 'Road Grader';
+      if (code.startsWith('RR-')) return 'Road Roller';
+      if (code.startsWith('BT-')) return 'Boom Truck';
+      if (code.startsWith('CT-')) return 'Cargo / Crane Truck';
+      if (code.startsWith('PM-')) return 'Prime Mover';
+      if (code.startsWith('DOLLY-')) return 'Heavy Trailer Dolly';
+      if (code.startsWith('DT-')) return 'Dump Truck';
+      if (code.startsWith('LBT-')) return 'Lowbed Trailer';
+      if (code.startsWith('BD-')) return 'Bulldozer';
+      if (code.startsWith('SV-')) return 'Service Vehicle';
+      return 'Heavy Fleet Unit';
+    }
+
+    const OPERATORS = [
+      'R. Mendoza', 'J. Santos', 'A. Reyes', 'C. Bautista',
+      'M. Villanueva', 'D. Navarro', 'K. Ramirez', 'E. Morales'
+    ];
+
+    const MECHANICS = [
+      'Engr. L. Cruz', 'Tech. P. Aquino', 'Lead Mech. G. Ramos', 'Spec. T. Soriano'
+    ];
+
+    const ZONES = [
+      'North Quarry Sector A', 'Main Haulage Corridor', 'Central Workshop Bay 2',
+      'East Embankment Site', 'Logistics Staging Yard', 'South Crusher Plant'
+    ];
+
+    function hashCode(str) {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) {
+        h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+      }
+      return Math.abs(h);
+    }
+
+    function createDefaultTracks(code) {
+      return [
+        { id: `${code}-ws-0`, name: 'Operations / Dispatch', sub: 'Field Deployment', color: 'emerald' },
+        { id: `${code}-ws-1`, name: 'Maintenance & Inspection', sub: 'PM & Diagnostics', color: 'amber' },
+        { id: `${code}-ws-2`, name: 'Incident / Repair Log', sub: 'Downtime & QA', color: 'rose' },
+        { id: `${code}-ws-3`, name: 'Operator Shift', sub: 'Crew & Standby', color: 'sky' }
+      ];
+    }
+
+    function generateDefaultGanttTasks(code, status, tracks) {
+      const seed = hashCode(code);
+      const op = OPERATORS[seed % OPERATORS.length];
+      const mech = MECHANICS[seed % MECHANICS.length];
+
+      const tasks = [
+        {
+          id: `${code}-t1`,
+          trackId: tracks[0].id,
+          title: 'Scheduled Field Dispatch',
+          status: 'Available',
+          start: 4 + (seed % 8),
+          duration: 34 + (seed % 14),
+          progress: 100,
+          person: op,
+          notes: 'Completed haulage and site operations within target fuel & cycle metrics.'
+        },
+        {
+          id: `${code}-t2`,
+          trackId: tracks[1].id,
+          title: '500-Hr Preventive Check',
+          status: 'Restored',
+          start: 18 + (seed % 12),
+          duration: 20 + (seed % 10),
+          progress: 100,
+          person: mech,
+          notes: 'Oil sampling, filter replacement, and brake pressure calibration passed.'
+        },
+        {
+          id: `${code}-t4`,
+          trackId: tracks[3].id,
+          title: 'Alpha & Bravo Shift Coverage',
+          status: 'Available',
+          start: 2,
+          duration: 56 + (seed % 12),
+          progress: 92,
+          person: op,
+          notes: 'Continuous dual-shift operator assignment logged via RFID terminal.'
+        }
+      ];
+
+      if (status === 'Available') {
+        tasks.push({
+          id: `${code}-t5`,
+          trackId: tracks[0].id,
+          title: 'Active Fleet Deployment',
+          status: 'Available',
+          start: 54,
+          duration: 38,
+          progress: 72,
+          person: op,
+          notes: 'Unit operating normally with active GPS & engine telemetry.'
+        });
+      } else if (status === 'Reported') {
+        tasks.push({
+          id: `${code}-t5`,
+          trackId: tracks[1].id,
+          title: 'Field Fault Reported — Diagnostics',
+          status: 'Reported',
+          start: 56,
+          duration: 34,
+          progress: 55,
+          person: mech,
+          notes: 'Operator flagged sensor warning / minor hydraulic seepage; inspection underway.'
+        });
+      } else if (status === 'Down') {
+        tasks.push({
+          id: `${code}-t3`,
+          trackId: tracks[2].id,
+          title: 'Critical Breakdown & Bay Repair',
+          status: 'Down',
+          start: 52,
+          duration: 42,
+          progress: 40,
+          person: mech,
+          notes: 'Unit sidelined in repair bay awaiting component replacement & load testing.'
+        });
+      } else if (status === 'Restored') {
+        tasks.push({
+          id: `${code}-t3`,
+          trackId: tracks[2].id,
+          title: 'Repair Completed — QA Clearance',
+          status: 'Restored',
+          start: 58,
+          duration: 34,
+          progress: 100,
+          person: mech,
+          notes: 'Post-repair stress test cleared; ready for immediate dispatch.'
+        });
+      }
+
+      return tasks;
+    }
+
+    function buildDefaultAssets() {
+      return INITIAL_FLEET_DATA.map((item, idx) => {
+        const seed = hashCode(item.code + idx);
+        const tracks = createDefaultTracks(item.code);
+        return {
+          code: item.code,
+          status: item.status,
+          category: inferEquipmentCategory(item.code),
+          operator: OPERATORS[seed % OPERATORS.length],
+          zone: ZONES[seed % ZONES.length],
+          utilization: item.status === 'Down' ? 54 + (seed % 18) : 76 + (seed % 21),
+          tracks,
+          tasks: generateDefaultGanttTasks(item.code, item.status, tracks)
+        };
+      });
+    }
+
+    function loadPersistedAssets() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
+        }
+      } catch (err) {
+        console.warn('Unable to read localStorage:', err);
+      }
+      return buildDefaultAssets();
+    }
+
+    function saveStateToStorage() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state.assets));
+      } catch (err) {
+        console.warn('Unable to persist state:', err);
+      }
+    }
+
+    // Application State
+    const state = {
+      assets: loadPersistedAssets(),
+      statusFilter: null,
+      searchQuery: '',
+      selectedAssetCode: null,
+      timeframe: '7d',
+      lastDeletedTrack: null
+    };
+
+    // DOM References
+    const ledWallGrid = document.getElementById('led-wall-grid');
+    const emptyWallState = document.getElementById('empty-wall-state');
+    const totalUnitsBadge = document.getElementById('total-units-badge');
+    const searchInput = document.getElementById('asset-search-input');
+    const clearSearchBtn = document.getElementById('clear-search-btn');
+
+    const ganttSection = document.getElementById('gantt-section');
+    const ganttHeaderOrb = document.getElementById('gantt-header-orb');
+    const ganttAssetCode = document.getElementById('gantt-asset-code');
+    const ganttStatusBadge = document.getElementById('gantt-status-badge');
+    const ganttAssetCategory = document.getElementById('gantt-asset-category');
+    const ganttAssetMeta = document.getElementById('gantt-asset-meta');
+    const ganttAxisHeader = document.getElementById('gantt-axis-header');
+    const ganttRowsContainer = document.getElementById('gantt-rows-container');
+    const ganttSelectedTaskInfo = document.getElementById('gantt-selected-task-info');
+
+    const tooltip = document.getElementById('gantt-tooltip');
+    const ttTitle = document.getElementById('tt-title');
+    const ttTime = document.getElementById('tt-time');
+    const ttDesc = document.getElementById('tt-desc');
+    const ttMeta = document.getElementById('tt-meta');
+
+    // Status Style Maps
+    const STATUS_STYLES = {
+      Available: {
+        orbClass: 'led-available',
+        badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+        barBg: 'bg-emerald-600/85 border-emerald-400',
+        barFill: 'bg-emerald-400/35',
+        pillActive: 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50'
+      },
+      Reported: {
+        orbClass: 'led-reported',
+        badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+        barBg: 'bg-amber-600/85 border-amber-400',
+        barFill: 'bg-amber-300/35',
+        pillActive: 'bg-amber-500/20 text-amber-300 border border-amber-500/50'
+      },
+      Down: {
+        orbClass: 'led-down',
+        badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
+        barBg: 'bg-rose-600/85 border-rose-400 gantt-stripe',
+        barFill: 'bg-rose-300/30',
+        pillActive: 'bg-rose-500/20 text-rose-300 border border-rose-500/50'
+      },
+      Restored: {
+        orbClass: 'led-restored',
+        badgeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
+        barBg: 'bg-blue-600/85 border-blue-400',
+        barFill: 'bg-blue-300/35',
+        pillActive: 'bg-blue-500/20 text-blue-300 border border-blue-500/50'
+      }
+    };
+
+    const TRACK_ACCENT_DOTS = {
+      emerald: 'bg-emerald-400 shadow-[0_0_6px_#34d399]',
+      amber: 'bg-amber-400 shadow-[0_0_6px_#fbbf24]',
+      rose: 'bg-rose-500 shadow-[0_0_6px_#f43f5e]',
+      sky: 'bg-sky-400 shadow-[0_0_6px_#38bdf8]',
+      purple: 'bg-purple-400 shadow-[0_0_6px_#c084fc]'
+    };
+
+    // Update KPI Counts & Total Badge
+    function updateSummaryCounts() {
+      const counts = { Available: 0, Reported: 0, Down: 0, Restored: 0 };
+      state.assets.forEach(a => {
+        if (counts[a.status] !== undefined) counts[a.status]++;
+      });
+
+      document.getElementById('count-available').textContent = counts.Available;
+      document.getElementById('count-reported').textContent = counts.Reported;
+      document.getElementById('count-down').textContent = counts.Down;
+      document.getElementById('count-restored').textContent = counts.Restored;
+      totalUnitsBadge.textContent = `${state.assets.length} Units Monitored`;
+
+      document.querySelectorAll('.kpi-filter-btn').forEach(btn => {
+        const filterVal = btn.getAttribute('data-filter');
+        if (state.statusFilter === filterVal) {
+          btn.classList.add('ring-2', 'ring-amber-400', 'brightness-110');
+        } else {
+          btn.classList.remove('ring-2', 'ring-amber-400', 'brightness-110');
+        }
+      });
+    }
+
+    // Render the 10-Column LED Wall
+    function renderLedWall() {
+      updateSummaryCounts();
+
+      const query = state.searchQuery.trim().toLowerCase();
+      const filtered = state.assets.filter(asset => {
+        const matchesStatus = !state.statusFilter || asset.status === state.statusFilter;
+        const matchesSearch =
+          !query ||
+          asset.code.toLowerCase().includes(query) ||
+          asset.category.toLowerCase().includes(query) ||
+          asset.status.toLowerCase().includes(query);
+        return matchesStatus && matchesSearch;
+      });
+
+      if (filtered.length === 0) {
+        ledWallGrid.innerHTML = '';
+        emptyWallState.classList.remove('hidden');
+        return;
+      }
+
+      emptyWallState.classList.add('hidden');
+      ledWallGrid.innerHTML = filtered
+        .map(asset => {
+          const style = STATUS_STYLES[asset.status] || STATUS_STYLES.Available;
+          const isSelected = state.selectedAssetCode === asset.code;
+          return `
+            <button
+              type="button"
+              data-asset-code="${asset.code}"
+              title="${asset.code} • ${asset.category} (${asset.status}) — Click to view & edit Gantt chart"
+              class="asset-pill ${isSelected ? 'selected' : ''} flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-left cursor-pointer group"
+            >
+              <span class="font-mono-code font-bold text-[13px] text-slate-100 tracking-tight truncate group-hover:text-white">
+                ${asset.code}
+              </span>
+              <span class="led-orb ${style.orbClass} group-hover:scale-105"></span>
+            </button>
+          `;
+        })
+        .join('');
+
+      document.querySelectorAll('[data-asset-code]').forEach(pill => {
+        pill.addEventListener('click', () => {
+          const code = pill.getAttribute('data-asset-code');
+          selectAsset(code, true);
+        });
+      });
+    }
+
+    // Select an asset and open its Gantt Chart below
+    function selectAsset(code, shouldScroll = false) {
+      const asset = state.assets.find(a => a.code === code);
+      if (!asset) return;
+
+      state.selectedAssetCode = code;
+      renderLedWall();
+      renderGanttChart(asset);
+
+      ganttSection.classList.remove('hidden');
+      if (shouldScroll) {
+        setTimeout(() => {
+          ganttSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 60);
+      }
+    }
+
+    // Time Axis Labels by Timeframe
+    function getAxisColumns(timeframe) {
+      if (timeframe === '24h') {
+        return ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
+      }
+      if (timeframe === '30d') {
+        return ['Wk 1 (Days 1–7)', 'Wk 2 (Days 8–14)', 'Wk 3 (Days 15–21)', 'Wk 4 (Days 22–30)'];
+      }
+      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    }
+
+    function formatBarTimestamp(startPct, durationPct, timeframe) {
+      const endPct = Math.min(100, startPct + durationPct);
+      if (timeframe === '24h') {
+        const sHr = Math.floor((startPct / 100) * 24);
+        const eHr = Math.min(24, Math.ceil((endPct / 100) * 24));
+        return `${String(sHr).padStart(2, '0')}:00 – ${String(eHr).padStart(2, '0')}:00`;
+      }
+      if (timeframe === '30d') {
+        const sDay = Math.max(1, Math.round((startPct / 100) * 30));
+        const eDay = Math.min(30, Math.max(sDay + 1, Math.round((endPct / 100) * 30)));
+        return `Day ${sDay} – Day ${eDay}`;
+      }
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const sIdx = Math.min(6, Math.floor((startPct / 100) * 7));
+      const eIdx = Math.min(6, Math.max(sIdx, Math.floor(((endPct - 1) / 100) * 7)));
+      return sIdx === eIdx ? `${days[sIdx]} (Shift Window)` : `${days[sIdx]} → ${days[eIdx]}`;
+    }
+
+    // Render the Gantt Chart for the selected asset
+    function renderGanttChart(asset) {
+      const style = STATUS_STYLES[asset.status] || STATUS_STYLES.Available;
+
+      if (!Array.isArray(asset.tracks) || asset.tracks.length === 0) {
+        asset.tracks = createDefaultTracks(asset.code);
+      }
+
+      ganttHeaderOrb.className = `led-orb ${style.orbClass} mt-1 sm:mt-0 scale-110`;
+      ganttAssetCode.textContent = asset.code;
+      ganttStatusBadge.textContent = asset.status;
+      ganttStatusBadge.className = `px-2.5 py-0.5 rounded-full text-xs font-extrabold uppercase tracking-wider border ${style.badgeClass}`;
+      ganttAssetCategory.textContent = asset.category;
+
+      document.querySelectorAll('.status-switch-btn').forEach(btn => {
+        const st = btn.getAttribute('data-set-status');
+        if (st === asset.status) {
+          btn.className = `status-switch-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${STATUS_STYLES[st].pillActive}`;
+        } else {
+          btn.className = 'status-switch-btn flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white hover:bg-[#1e2634] transition cursor-pointer';
+        }
+      });
+
+      document.querySelectorAll('.range-btn').forEach(btn => {
+        const rng = btn.getAttribute('data-range');
+        if (rng === state.timeframe) {
+          btn.className = 'range-btn px-3 py-1 rounded-md text-xs font-bold bg-[#252f42] text-amber-400 shadow transition cursor-pointer';
+        } else {
+          btn.className = 'range-btn px-3 py-1 rounded-md text-xs font-bold text-slate-400 hover:text-white transition cursor-pointer';
+        }
+      });
+
+      const undoBtn = document.getElementById('undo-track-delete-btn');
+      if (state.lastDeletedTrack && state.lastDeletedTrack.assetCode === asset.code) {
+        undoBtn.classList.remove('hidden');
+      } else {
+        undoBtn.classList.add('hidden');
+      }
+
+      const cols = getAxisColumns(state.timeframe);
+      ganttAxisHeader.style.gridTemplateColumns = `repeat(${cols.length}, minmax(0, 1fr))`;
+      ganttAxisHeader.innerHTML = cols
+        .map(
+          (label, i) => `
+          <div class="px-2 py-3 text-center text-[11px] font-bold text-slate-300 ${
+            i < cols.length - 1 ? 'border-r border-[#212938]' : ''
+          }">
+            ${label}
+          </div>
+        `
+        )
+        .join('');
+
+      const nowLeftPct = state.timeframe === '24h' ? 62 : state.timeframe === '30d' ? 80 : 84;
+
+      ganttRowsContainer.innerHTML = asset.tracks
+        .map((track, trackIdx) => {
+          const trackTasks = asset.tasks.filter(t => t.trackId === track.id);
+          const dotClass = TRACK_ACCENT_DOTS[track.color] || TRACK_ACCENT_DOTS.emerald;
+
+          const gridLinesHtml = cols
+            .map(
+              (_, i) =>
+                `<div class="h-full ${i < cols.length - 1 ? 'border-r border-[#1b2230]' : ''}"></div>`
+            )
+            .join('');
+
+          const barsHtml = trackTasks
+            .map(task => {
+              const tStyle = STATUS_STYLES[task.status] || STATUS_STYLES.Available;
+              const left = Math.max(0, Math.min(95, task.start));
+              const width = Math.max(5, Math.min(100 - left, task.duration));
+
+              return `
+                <div
+                  data-task-id="${task.id}"
+                  style="left: ${left}%; width: ${width}%;"
+                  class="gantt-bar absolute top-1/2 -translate-y-1/2 h-8 rounded-lg border ${tStyle.barBg} shadow-md cursor-grab overflow-hidden flex items-center px-2.5 group hover:brightness-110 transition-shadow z-10"
+                >
+                  <div class="resize-handle resize-handle-left" data-resize="left" title="Drag to adjust start"></div>
+                  <div style="width: ${task.progress}%;" class="absolute inset-y-0 left-0 ${tStyle.barFill} pointer-events-none"></div>
+                  <span class="relative z-10 text-white font-bold text-[11px] truncate drop-shadow pointer-events-none">
+                    ${task.title}
+                  </span>
+                  <div class="resize-handle resize-handle-right" data-resize="right" title="Drag to adjust duration"></div>
+                </div>
+              `;
+            })
+            .join('');
+
+          return `
+            <div class="grid grid-cols-[260px_1fr] min-h-[64px] hover:bg-[#141a25]/70 transition-colors group/row">
+              <!-- Editable Workstream Header Cell -->
+              <div class="px-3.5 py-2 border-r border-[#252e3f] flex items-center justify-between gap-2 bg-[#131822]/80">
+                <div class="flex items-start gap-2 min-w-0 flex-1">
+                  <span class="w-2 h-2 rounded-full ${dotClass} mt-1.5 flex-shrink-0"></span>
+                  <div class="min-w-0 flex-1">
+                    <div
+                      data-inline-rename="${track.id}"
+                      title="Double-click to rename workstream"
+                      class="text-xs font-bold text-slate-200 truncate cursor-text hover:text-amber-300 transition-colors"
+                    >${track.name}</div>
+                    <div class="text-[11px] text-slate-500 truncate">${track.sub || 'Custom Workstream'}</div>
+                  </div>
+                </div>
+
+                <!-- Workstream Row Controls (Up, Down, Edit, Delete) -->
+                <div class="flex items-center gap-0.5 opacity-75 group-hover/row:opacity-100 transition-opacity flex-shrink-0">
+                  <button
+                    type="button"
+                    data-move-track-up="${track.id}"
+                    ${trackIdx === 0 ? 'disabled' : ''}
+                    title="Move workstream up"
+                    class="p-1 rounded text-[10px] text-slate-400 hover:text-white hover:bg-[#232c3d] disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+                  >▲</button>
+                  <button
+                    type="button"
+                    data-move-track-down="${track.id}"
+                    ${trackIdx === asset.tracks.length - 1 ? 'disabled' : ''}
+                    title="Move workstream down"
+                    class="p-1 rounded text-[10px] text-slate-400 hover:text-white hover:bg-[#232c3d] disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+                  >▼</button>
+                  <button
+                    type="button"
+                    data-edit-track="${track.id}"
+                    title="Edit workstream name, subtitle & color"
+                    class="p-1 rounded text-xs text-slate-400 hover:text-amber-400 hover:bg-[#232c3d] cursor-pointer"
+                  >✎</button>
+                  <button
+                    type="button"
+                    data-delete-track="${track.id}"
+                    title="Remove workstream"
+                    class="p-1 rounded text-[11px] text-slate-400 hover:text-rose-400 hover:bg-rose-500/15 cursor-pointer"
+                  >✕</button>
+                </div>
+              </div>
+
+              <!-- Interactive Timeline Lane (Click empty space to add block) -->
+              <div
+                data-lane-track-id="${track.id}"
+                title="Click empty timeline slot to add a block on ${track.name}"
+                class="gantt-lane relative h-full min-h-[64px] cursor-crosshair"
+              >
+                <div class="absolute inset-0 grid pointer-events-none" style="grid-template-columns: repeat(${cols.length}, minmax(0, 1fr));">
+                  ${gridLinesHtml}
+                </div>
+
+                <div style="left: ${nowLeftPct}%;" class="absolute inset-y-0 w-[2px] bg-amber-400/80 z-20 pointer-events-none">
+                  ${
+                    trackIdx === 0
+                      ? '<span class="absolute -top-0.5 -translate-x-1/2 bg-amber-400 text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded-b">NOW</span>'
+                      : ''
+                  }
+                </div>
+
+                ${barsHtml}
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      attachGanttInteractions(asset);
+    }
+
+    // Bind Workstream Row Edits, Empty Slot Clicks, and Bar Drag/Resize/Edit
+    function attachGanttInteractions(asset) {
+      // 1. Inline double-click rename on workstream title
+      ganttRowsContainer.querySelectorAll('[data-inline-rename]').forEach(el => {
+        el.addEventListener('dblclick', e => {
+          e.stopPropagation();
+          const trackId = el.getAttribute('data-inline-rename');
+          const track = asset.tracks.find(t => t.id === trackId);
+          if (!track) return;
+
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = track.name;
+          input.className = 'w-full bg-[#0b0e14] text-amber-300 text-xs font-bold px-1.5 py-0.5 rounded border border-amber-400 focus:outline-none';
+          el.replaceWith(input);
+          input.focus();
+          input.select();
+
+          const commitRename = () => {
+            const nextName = input.value.trim();
+            if (nextName) track.name = nextName;
+            saveStateToStorage();
+            renderGanttChart(asset);
+          };
+
+          input.addEventListener('blur', commitRename);
+          input.addEventListener('keydown', ev => {
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              commitRename();
+            } else if (ev.key === 'Escape') {
+              renderGanttChart(asset);
+            }
+          });
+        });
+      });
+
+      // 2. Move workstream up/down
+      ganttRowsContainer.querySelectorAll('[data-move-track-up]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const trackId = btn.getAttribute('data-move-track-up');
+          const idx = asset.tracks.findIndex(t => t.id === trackId);
+          if (idx > 0) {
+            const temp = asset.tracks[idx - 1];
+            asset.tracks[idx - 1] = asset.tracks[idx];
+            asset.tracks[idx] = temp;
+            saveStateToStorage();
+            renderGanttChart(asset);
+          }
+        });
+      });
+
+      ganttRowsContainer.querySelectorAll('[data-move-track-down]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const trackId = btn.getAttribute('data-move-track-down');
+          const idx = asset.tracks.findIndex(t => t.id === trackId);
+          if (idx !== -1 && idx < asset.tracks.length - 1) {
+            const temp = asset.tracks[idx + 1];
+            asset.tracks[idx + 1] = asset.tracks[idx];
+            asset.tracks[idx] = temp;
+            saveStateToStorage();
+            renderGanttChart(asset);
+          }
+        });
+      });
+
+      // 3. Edit workstream modal trigger
+      ganttRowsContainer.querySelectorAll('[data-edit-track]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const trackId = btn.getAttribute('data-edit-track');
+          openTrackModal(asset, trackId);
+        });
+      });
+
+      // 4. Delete workstream (with undo support)
+      ganttRowsContainer.querySelectorAll('[data-delete-track]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const trackId = btn.getAttribute('data-delete-track');
+          if (asset.tracks.length <= 1) {
+            ganttSelectedTaskInfo.innerHTML = `<span class="text-rose-400 font-bold">At least one workstream track must remain active on ${asset.code}.</span>`;
+            return;
+          }
+          const idx = asset.tracks.findIndex(t => t.id === trackId);
+          if (idx === -1) return;
+
+          const [removedTrack] = asset.tracks.splice(idx, 1);
+          const removedTasks = asset.tasks.filter(t => t.trackId === trackId);
+          asset.tasks = asset.tasks.filter(t => t.trackId !== trackId);
+
+          state.lastDeletedTrack = {
+            assetCode: asset.code,
+            track: removedTrack,
+            tasks: removedTasks,
+            index: idx
+          };
+
+          saveStateToStorage();
+          renderGanttChart(asset);
+          ganttSelectedTaskInfo.innerHTML = `
+            <span class="text-amber-300 font-semibold">Removed workstream "${removedTrack.name}".</span>
+            <span class="text-slate-400">Click "Undo Delete Track" on the right to restore it.</span>
+          `;
+        });
+      });
+
+      // 5. Click empty timeline lane to add a new task block at that exact time position
+      ganttRowsContainer.querySelectorAll('.gantt-lane').forEach(laneEl => {
+        laneEl.addEventListener('click', e => {
+          if (e.target.closest('.gantt-bar')) return;
+          const rect = laneEl.getBoundingClientRect();
+          const clickPct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+          const snappedStart = Math.max(0, Math.min(82, Math.round(clickPct / 2) * 2));
+          const trackId = laneEl.getAttribute('data-lane-track-id');
+          openTaskModal({
+            asset,
+            trackId,
+            start: snappedStart,
+            duration: 18
+          });
+        });
+      });
+
+      // 6. Gantt Bar Drag, Edge Resize, Tooltip, and Click-to-Edit
+      ganttRowsContainer.querySelectorAll('.gantt-bar').forEach(barEl => {
+        const taskId = barEl.getAttribute('data-task-id');
+        const task = asset.tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        barEl.addEventListener('mouseenter', e => showTaskTooltip(e, task));
+        barEl.addEventListener('mousemove', e => moveTaskTooltip(e));
+        barEl.addEventListener('mouseleave', hideTaskTooltip);
+
+        barEl.addEventListener('pointerdown', e => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+
+          const laneEl = barEl.closest('.gantt-lane');
+          const laneRect = laneEl.getBoundingClientRect();
+          const resizeEdge = e.target.getAttribute('data-resize');
+          const startX = e.clientX;
+          const origStart = task.start;
+          const origDuration = task.duration;
+          let moved = false;
+
+          barEl.setPointerCapture(e.pointerId);
+          barEl.classList.add('is-dragging');
+
+          const onPointerMove = moveEvent => {
+            const deltaPx = moveEvent.clientX - startX;
+            if (Math.abs(deltaPx) > 3) moved = true;
+            if (!moved) return;
+
+            const deltaPct = Math.round(((deltaPx / laneRect.width) * 100) * 2) / 2;
+
+            if (resizeEdge === 'left') {
+              const maxStart = origStart + origDuration - 5;
+              const nextStart = Math.max(0, Math.min(maxStart, origStart + deltaPct));
+              const nextDur = origDuration + (origStart - nextStart);
+              task.start = Number(nextStart.toFixed(1));
+              task.duration = Number(nextDur.toFixed(1));
+            } else if (resizeEdge === 'right') {
+              const maxDur = 100 - origStart;
+              const nextDur = Math.max(5, Math.min(maxDur, origDuration + deltaPct));
+              task.duration = Number(nextDur.toFixed(1));
+            } else {
+              const nextStart = Math.max(0, Math.min(100 - origDuration, origStart + deltaPct));
+              task.start = Number(nextStart.toFixed(1));
+            }
+
+            barEl.style.left = `${task.start}%`;
+            barEl.style.width = `${task.duration}%`;
+            showTaskTooltip(moveEvent, task);
+          };
+
+          const onPointerUp = upEvent => {
+            barEl.releasePointerCapture(upEvent.pointerId);
+            barEl.classList.remove('is-dragging');
+            barEl.removeEventListener('pointermove', onPointerMove);
+            barEl.removeEventListener('pointerup', onPointerUp);
+
+            if (moved) {
+              saveStateToStorage();
+              const timeStr = formatBarTimestamp(task.start, task.duration, state.timeframe);
+              ganttSelectedTaskInfo.innerHTML = `
+                <span class="inline-block w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                <span class="text-slate-300">Updated schedule for</span>
+                <strong class="text-white">${task.title}</strong>
+                <span class="text-amber-300 font-mono-code">(${timeStr})</span>
+              `;
+            } else {
+              hideTaskTooltip();
+              openTaskModal({ asset, task });
+            }
+          };
+
+          barEl.addEventListener('pointermove', onPointerMove);
+          barEl.addEventListener('pointerup', onPointerUp);
+        });
+      });
+    }
+
+    // Tooltip Helpers
+    function showTaskTooltip(e, task) {
+      ttTitle.textContent = task.title;
+      ttTime.textContent = formatBarTimestamp(task.start, task.duration, state.timeframe);
+      ttDesc.textContent = task.notes;
+      ttMeta.innerHTML = `<span>Lead: <strong class="text-slate-200">${task.person}</strong></span><span>${task.progress}% Done</span>`;
+      tooltip.classList.remove('hidden');
+      moveTaskTooltip(e);
+    }
+
+    function moveTaskTooltip(e) {
+      const pad = 14;
+      let left = e.clientX + pad;
+      let top = e.clientY + pad;
+      if (left + 290 > window.innerWidth) left = e.clientX - 290;
+      if (top + 130 > window.innerHeight) top = e.clientY - 130;
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${top}px`;
+    }
+
+    function hideTaskTooltip() {
+      tooltip.classList.add('hidden');
+    }
+
+    // KPI Filter Pill Clicks
+    document.querySelectorAll('.kpi-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const clicked = btn.getAttribute('data-filter');
+        state.statusFilter = state.statusFilter === clicked ? null : clicked;
+        renderLedWall();
+      });
+    });
+
+    // Search Input Events
+    searchInput.addEventListener('input', e => {
+      state.searchQuery = e.target.value;
+      clearSearchBtn.classList.toggle('hidden', !state.searchQuery);
+      clearSearchBtn.classList.toggle('flex', Boolean(state.searchQuery));
+      renderLedWall();
+    });
+
+    clearSearchBtn.addEventListener('click', () => {
+      state.searchQuery = '';
+      searchInput.value = '';
+      clearSearchBtn.classList.add('hidden');
+      clearSearchBtn.classList.remove('flex');
+      renderLedWall();
+    });
+
+    document.getElementById('reset-filters-btn').addEventListener('click', () => {
+      state.statusFilter = null;
+      state.searchQuery = '';
+      searchInput.value = '';
+      clearSearchBtn.classList.add('hidden');
+      renderLedWall();
+    });
+
+    // Close Gantt Panel
+    document.getElementById('close-gantt-btn').addEventListener('click', () => {
+      state.selectedAssetCode = null;
+      ganttSection.classList.add('hidden');
+      renderLedWall();
+    });
+
+    // Quick Status Switcher inside Gantt Header
+    document.querySelectorAll('.status-switch-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!state.selectedAssetCode) return;
+        const newStatus = btn.getAttribute('data-set-status');
+        const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+        if (!asset || asset.status === newStatus) return;
+
+        asset.status = newStatus;
+        const preferredIdx = newStatus === 'Down' ? 2 : newStatus === 'Reported' ? 1 : newStatus === 'Restored' ? 2 : 0;
+        const targetTrack = asset.tracks[preferredIdx] || asset.tracks[0];
+        asset.tasks.push({
+          id: `${asset.code}-${Date.now()}`,
+          trackId: targetTrack.id,
+          title: `Status Updated → ${newStatus}`,
+          status: newStatus,
+          start: 74,
+          duration: 22,
+          progress: newStatus === 'Restored' || newStatus === 'Available' ? 100 : 35,
+          person: 'Fleet Control',
+          notes: `Unit status manually switched to ${newStatus} from live monitoring console.`
+        });
+
+        saveStateToStorage();
+        renderLedWall();
+        renderGanttChart(asset);
+      });
+    });
+
+    // Undo deleted workstream track
+    document.getElementById('undo-track-delete-btn').addEventListener('click', () => {
+      const backup = state.lastDeletedTrack;
+      if (!backup) return;
+      const asset = state.assets.find(a => a.code === backup.assetCode);
+      if (!asset) return;
+
+      asset.tracks.splice(backup.index, 0, backup.track);
+      asset.tasks.push(...backup.tasks);
+      state.lastDeletedTrack = null;
+      saveStateToStorage();
+      renderGanttChart(asset);
+    });
+
+    // Reset Demo Data
+    document.getElementById('reset-demo-btn').addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      state.assets = buildDefaultAssets();
+      state.lastDeletedTrack = null;
+      renderLedWall();
+      if (state.selectedAssetCode) {
+        const current = state.assets.find(a => a.code === state.selectedAssetCode);
+        if (current) renderGanttChart(current);
+      }
+    });
+
+    // Timeframe Switcher
+    document.querySelectorAll('.range-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.timeframe = btn.getAttribute('data-range');
+        if (state.selectedAssetCode) {
+          const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+          if (asset) renderGanttChart(asset);
+        }
+      });
+    });
+
+    // Modal 1: Add New Asset Number
+    const addAssetModal = document.getElementById('add-asset-modal');
+    const addAssetError = document.getElementById('add-asset-error');
+
+    document.getElementById('open-add-modal-btn').addEventListener('click', () => {
+      addAssetError.classList.add('hidden');
+      document.getElementById('add-asset-form').reset();
+      addAssetModal.classList.remove('hidden');
+      addAssetModal.classList.add('flex');
+      document.getElementById('new-asset-code').focus();
+    });
+
+    function closeAddModal() {
+      addAssetModal.classList.add('hidden');
+      addAssetModal.classList.remove('flex');
+    }
+
+    document.getElementById('close-add-modal').addEventListener('click', closeAddModal);
+    document.getElementById('cancel-add-modal').addEventListener('click', closeAddModal);
+
+    document.getElementById('add-asset-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const rawCode = document.getElementById('new-asset-code').value.trim().toUpperCase();
+      const status = document.getElementById('new-asset-status').value;
+      const rawCat = document.getElementById('new-asset-category').value.trim();
+
+      if (!rawCode) return;
+
+      if (state.assets.some(a => a.code.toUpperCase() === rawCode)) {
+        addAssetError.textContent = `Asset "${rawCode}" already exists on the LED Wall.`;
+        addAssetError.classList.remove('hidden');
+        return;
+      }
+
+      const newTracks = createDefaultTracks(rawCode);
+      const newAsset = {
+        code: rawCode,
+        status,
+        category: rawCat || inferEquipmentCategory(rawCode),
+        operator: OPERATORS[state.assets.length % OPERATORS.length],
+        zone: ZONES[state.assets.length % ZONES.length],
+        utilization: status === 'Down' ? 60 : 88,
+        tracks: newTracks,
+        tasks: generateDefaultGanttTasks(rawCode, status, newTracks)
+      };
+
+      state.assets.push(newAsset);
+      saveStateToStorage();
+      closeAddModal();
+      selectAsset(rawCode, true);
+    });
+
+    // Modal 2: Create or Edit Gantt Activity Bar
+    const logGanttModal = document.getElementById('log-gantt-modal');
+    const deleteTaskBtn = document.getElementById('delete-task-btn');
+
+    function openTaskModal({ asset, task = null, trackId = null, start = 45, duration = 24 }) {
+      if (!asset) return;
+      document.getElementById('log-modal-unit').textContent = asset.code;
+
+      const trackSelect = document.getElementById('log-track');
+      trackSelect.innerHTML = asset.tracks
+        .map(t => `<option value="${t.id}">${t.name}</option>`)
+        .join('');
+
+      if (task) {
+        document.getElementById('log-modal-heading').textContent = 'Edit Gantt Block';
+        document.getElementById('log-editing-task-id').value = task.id;
+        trackSelect.value = task.trackId;
+        document.getElementById('log-title').value = task.title;
+        document.getElementById('log-status').value = task.status;
+        document.getElementById('log-progress').value = task.progress;
+        document.getElementById('log-start').value = Math.round(task.start);
+        document.getElementById('log-duration').value = Math.round(task.duration);
+        document.getElementById('log-person').value = task.person || '';
+        document.getElementById('log-notes').value = task.notes || '';
+        document.getElementById('log-sync-status').checked = false;
+        deleteTaskBtn.classList.remove('hidden');
+      } else {
+        document.getElementById('log-modal-heading').textContent = 'Log Gantt Activity';
+        document.getElementById('log-editing-task-id').value = '';
+        trackSelect.value = trackId || asset.tracks[0].id;
+        document.getElementById('log-title').value = '';
+        document.getElementById('log-status').value = asset.status || 'Available';
+        document.getElementById('log-progress').value = 65;
+        document.getElementById('log-start').value = start;
+        document.getElementById('log-duration').value = duration;
+        document.getElementById('log-person').value = asset.operator || 'Duty Supervisor';
+        document.getElementById('log-notes').value = '';
+        document.getElementById('log-sync-status').checked = false;
+        deleteTaskBtn.classList.add('hidden');
+      }
+
+      logGanttModal.classList.remove('hidden');
+      logGanttModal.classList.add('flex');
+      document.getElementById('log-title').focus();
+    }
+
+    document.getElementById('open-log-modal-btn').addEventListener('click', () => {
+      const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+      if (asset) openTaskModal({ asset });
+    });
+
+    function closeLogModal() {
+      logGanttModal.classList.add('hidden');
+      logGanttModal.classList.remove('flex');
+    }
+
+    document.getElementById('close-log-modal').addEventListener('click', closeLogModal);
+    document.getElementById('cancel-log-modal').addEventListener('click', closeLogModal);
+
+    deleteTaskBtn.addEventListener('click', () => {
+      const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+      const editingId = document.getElementById('log-editing-task-id').value;
+      if (asset && editingId) {
+        asset.tasks = asset.tasks.filter(t => t.id !== editingId);
+        saveStateToStorage();
+        closeLogModal();
+        renderGanttChart(asset);
+      }
+    });
+
+    document.getElementById('log-gantt-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+      if (!asset) return;
+
+      const editingId = document.getElementById('log-editing-task-id').value;
+      const trackId = document.getElementById('log-track').value;
+      const title = document.getElementById('log-title').value.trim();
+      const status = document.getElementById('log-status').value;
+      const progress = Math.min(100, Math.max(0, parseInt(document.getElementById('log-progress').value, 10) || 0));
+      const start = Math.min(94, Math.max(0, parseFloat(document.getElementById('log-start').value) || 0));
+      const duration = Math.min(95, Math.max(5, parseFloat(document.getElementById('log-duration').value) || 20));
+      const person = document.getElementById('log-person').value.trim() || 'Duty Supervisor';
+      const notes = document.getElementById('log-notes').value.trim() || 'Logged via Fleet Timeline.';
+      const syncStatus = document.getElementById('log-sync-status').checked;
+
+      if (editingId) {
+        const existing = asset.tasks.find(t => t.id === editingId);
+        if (existing) {
+          existing.trackId = trackId;
+          existing.title = title;
+          existing.status = status;
+          existing.progress = progress;
+          existing.start = start;
+          existing.duration = duration;
+          existing.person = person;
+          existing.notes = notes;
+        }
+      } else {
+        asset.tasks.push({
+          id: `${asset.code}-${Date.now()}`,
+          trackId,
+          title,
+          status,
+          start,
+          duration,
+          progress,
+          person,
+          notes
+        });
+      }
+
+      if (syncStatus) {
+        asset.status = status;
+      }
+
+      saveStateToStorage();
+      closeLogModal();
+      renderLedWall();
+      renderGanttChart(asset);
+    });
+
+    // Modal 3: Edit Category Modal
+    const editCatModal = document.getElementById('edit-category-modal');
+    const editCatInput = document.getElementById('edit-cat-input');
+
+    document.getElementById('edit-category-btn').addEventListener('click', () => {
+      const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+      if (!asset) return;
+      editCatInput.value = asset.category;
+      editCatModal.classList.remove('hidden');
+      editCatModal.classList.add('flex');
+      editCatInput.focus();
+    });
+
+    function closeCatModal() {
+      editCatModal.classList.add('hidden');
+      editCatModal.classList.remove('flex');
+    }
+
+    document.getElementById('close-cat-modal').addEventListener('click', closeCatModal);
+    document.getElementById('cancel-cat-modal').addEventListener('click', closeCatModal);
+
+    document.getElementById('edit-category-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+      const val = editCatInput.value.trim();
+      if (asset && val) {
+        asset.category = val;
+        saveStateToStorage();
+        renderLedWall();
+        renderGanttChart(asset);
+      }
+      closeCatModal();
+    });
+
+    // Modal 4: Add or Edit Workstream Track Modal
+    const trackModal = document.getElementById('track-modal');
+    const trackColorInput = document.getElementById('track-color-input');
+
+    function setTrackColorSelection(color) {
+      trackColorInput.value = color;
+      document.querySelectorAll('.track-color-btn').forEach(btn => {
+        const c = btn.getAttribute('data-track-color');
+        if (c === color) {
+          btn.classList.add('border-amber-400', 'bg-[#1b2230]', 'text-white');
+          btn.classList.remove('border-[#2e384b]');
+        } else {
+          btn.classList.remove('border-amber-400', 'bg-[#1b2230]', 'text-white');
+          btn.classList.add('border-[#2e384b]');
+        }
+      });
+    }
+
+    document.querySelectorAll('.track-color-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        setTrackColorSelection(btn.getAttribute('data-track-color'));
+      });
+    });
+
+    function openTrackModal(asset, trackId = null) {
+      if (!asset) return;
+      const applyAllWrap = document.getElementById('apply-all-tracks-wrap');
+      if (trackId) {
+        const track = asset.tracks.find(t => t.id === trackId);
+        if (!track) return;
+        document.getElementById('track-modal-heading').textContent = 'Edit Workstream Track';
+        document.getElementById('editing-track-id').value = track.id;
+        document.getElementById('track-name-input').value = track.name;
+        document.getElementById('track-sub-input').value = track.sub || '';
+        setTrackColorSelection(track.color || 'emerald');
+        applyAllWrap.classList.add('hidden');
+      } else {
+        document.getElementById('track-modal-heading').textContent = 'Add Custom Workstream';
+        document.getElementById('editing-track-id').value = '';
+        document.getElementById('track-name-input').value = '';
+        document.getElementById('track-sub-input').value = '';
+        setTrackColorSelection('emerald');
+        document.getElementById('track-apply-all').checked = false;
+        applyAllWrap.classList.remove('hidden');
+      }
+
+      trackModal.classList.remove('hidden');
+      trackModal.classList.add('flex');
+      document.getElementById('track-name-input').focus();
+    }
+
+    function closeTrackModal() {
+      trackModal.classList.add('hidden');
+      trackModal.classList.remove('flex');
+    }
+
+    document.getElementById('open-add-track-btn').addEventListener('click', () => {
+      const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+      if (asset) openTrackModal(asset, null);
+    });
+
+    document.getElementById('close-track-modal').addEventListener('click', closeTrackModal);
+    document.getElementById('cancel-track-modal').addEventListener('click', closeTrackModal);
+
+    document.getElementById('track-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const asset = state.assets.find(a => a.code === state.selectedAssetCode);
+      if (!asset) return;
+
+      const editingTrackId = document.getElementById('editing-track-id').value;
+      const name = document.getElementById('track-name-input').value.trim();
+      const sub = document.getElementById('track-sub-input').value.trim() || 'Custom Workstream';
+      const color = trackColorInput.value || 'emerald';
+      const applyAll = document.getElementById('track-apply-all').checked;
+
+      if (!name) return;
+
+      if (editingTrackId) {
+        const track = asset.tracks.find(t => t.id === editingTrackId);
+        if (track) {
+          track.name = name;
+          track.sub = sub;
+          track.color = color;
+        }
+      } else if (applyAll) {
+        const stamp = Date.now();
+        state.assets.forEach((unit, idx) => {
+          unit.tracks.push({
+            id: `${unit.code}-ws-${stamp}-${idx}`,
+            name,
+            sub,
+            color
+          });
+        });
+      } else {
+        asset.tracks.push({
+          id: `${asset.code}-ws-${Date.now()}`,
+          name,
+          sub,
+          color
+        });
+      }
+
+      saveStateToStorage();
+      closeTrackModal();
+      renderGanttChart(asset);
+    });
+
+    // Close modals on Escape key
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        closeAddModal();
+        closeLogModal();
+        closeCatModal();
+        closeTrackModal();
+      }
+    });
+
+    // Initial Render
+    renderLedWall();
+  </script>
+</body>
+</html>
